@@ -11,7 +11,7 @@ from astrbot.core.utils.session_waiter import session_waiter, SessionController
 # 配置日志
 logger = logging.getLogger("galgame_plugin")
 
-@register("QQgal", "和泉智宏", "galgame", "1.0.0", "https://github.com/0d00-Ciallo-0721/QQgal")
+@register("QQgal", "和泉智宏", "galgame", "1.0.0", "https://github.com/0d00-Ciallo-0721/astrbot_plugin_QQgal")
 class GalGamePlugin(Star):
     def __init__(self, context: Context):
         """
