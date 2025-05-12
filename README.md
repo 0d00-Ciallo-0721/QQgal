@@ -1,4 +1,4 @@
- # GalGame Plugin for AstrBot
+ # QQPgal
 
 ## 写在最前面
 
