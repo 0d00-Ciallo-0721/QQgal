@@ -49,7 +49,7 @@
   "llm_provider_id": {
     "description": "LLM提供商ID",
     "type": "string",
-    "hint": "指定用于生成游戏内容的LLM提供商ID，例如：siliconflow_1、openai_1等。留空则使用默认提供商。",
+    "hint": "指定用于生成游戏内容的LLM提供商ID，例如：siliconflow_1、openai_1等。留空则使用默认提供商，建议使用其他提供商防止token爆炸。",
     "default": ""
   }
 }
