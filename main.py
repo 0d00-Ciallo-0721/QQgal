@@ -6,7 +6,7 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 import astrbot.api.message_components as Comp
 from astrbot.core.utils.session_waiter import session_waiter, SessionController
-from astrbot.api import AstrBotConfig, logger  # 修改为导入astrbot的logger
+from astrbot.api import AstrBotConfig, logger 
 
 @register("GalGamePlugin", "author", "Galgame 模拟插件，提供类视觉小说体验", "0.1.0", "repo url")
 class GalGamePlugin(Star):
