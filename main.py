@@ -8,7 +8,7 @@ import astrbot.api.message_components as Comp
 from astrbot.core.utils.session_waiter import session_waiter, SessionController
 from astrbot.api import AstrBotConfig, logger  # 修改为导入astrbot的logger
 
-@register("GalGamePlugin", "author", "Galgame 模拟插件，提供类视觉小说体验", "0.1.0", "repo url")
+@register("QQgal", "和泉智宏", "Galgame", "1.2", "https://github.com/0d00-Ciallo-0721/astrbot_plugin_QQgal")
 class GalGamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         """
