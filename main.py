@@ -1,16 +1,14 @@
 import json
 import datetime
-import asyncio
-import aiohttp
 from typing import Dict, List, Optional, Set, Any
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 import astrbot.api.message_components as Comp
 from astrbot.core.utils.session_waiter import session_waiter, SessionController
-from astrbot.api import AstrBotConfig, logger  
+from astrbot.api import AstrBotConfig, logger  # 修改为导入astrbot的logger
 
-@register("QQgal", "和泉智宏", "Galgame 模拟插件，提供类视觉小说体验", "1.1", "https://github.com/0d00-Ciallo-0721/astrbot_plugin_QQgal")
+@register("GalGamePlugin", "author", "Galgame 模拟插件，提供类视觉小说体验", "0.1.0", "repo url")
 class GalGamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         """
@@ -143,29 +141,6 @@ class GalGamePlugin(Star):
             
         # 检查群ID是否在允许列表中
         return group_id in self.enabled_groups
-    
-    def _manage_context_length(self, session_id: str, max_turns: int = 10):
-        """
-        管理上下文长度，保留最近的max_turns轮对话
-        """
-        context = self.game_sessions[session_id]["llm_context"]
-        
-        # 如果上下文条目少于阈值，不需要处理
-        if len(context) <= max_turns * 2:  # 每轮通常有用户和助手各一条消息
-            return
-        
-        # 保留系统消息（通常在开头）和最近的几轮对话
-        system_messages = [msg for msg in context if msg.get("role") == "system"]
-        recent_messages = context[-max_turns*2:]  # 保留最近的几轮
-        
-        # 添加一个总结消息
-        summary_message = {
-            "role": "system",
-            "content": "以上是故事的前半部分，现在继续后续情节。"
-        }
-        
-        # 更新上下文
-        self.game_sessions[session_id]["llm_context"] = system_messages + [summary_message] + recent_messages
 
     @filter.command("gal启动", priority=1)
     async def handle_start_galgame(self, event: AstrMessageEvent):
@@ -226,7 +201,8 @@ class GalGamePlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL, priority=0)
     async def handle_game_input(self, event: AstrMessageEvent):
         """
-        处理游戏中的用户输入（A/B/C），只拦截A/B/C选项，其他消息正常传递。
+        处理游戏中的用户输入（A/B/C），拦截并处理选项选择。
+        :param event: AstrBot 消息事件
         """
         # 检查是否在允许的群中
         if not self._check_group_permitted(event):
@@ -236,16 +212,16 @@ class GalGamePlugin(Star):
         # 检查该会话是否有活跃的游戏
         if session_id in self.game_sessions and self.game_sessions[session_id].get("game_active", False):
             user_input = event.message_str.strip().upper()
-            # 只处理选项选择
+            # 处理选项选择
             if user_input in ["A", "B", "C"]:
                 # 阻止默认的LLM处理
                 event.should_call_llm(False)
                 # 处理用户选择
                 async for response in self._process_user_choice(event, user_input):
                     yield response
-                # 阻止事件传播，不让选项文本传递给聊天LLM
-                event.stop_event()
-            # 其他非命令消息不做拦截，正常传递给聊天LLM
+            elif user_input not in ["GAL启动", "GAL关闭"]:  # 避免与命令冲突
+                # 对于非A/B/C输入，只阻止事件传播，不做任何提示
+                event.stop_event()  # 阻止其他插件处理此消息
 
     async def _generate_initial_scene(self, event: AstrMessageEvent):
         """
@@ -296,14 +272,6 @@ class GalGamePlugin(Star):
             # 生成第一组选项
             async for response in self._generate_options(event):
                 yield response
-        except aiohttp.ClientError as e:
-            # 网络错误
-            logger.error(f"网络错误: {str(e)}")
-            yield event.plain_result("网络连接问题，请稍后再试")
-        except json.JSONDecodeError as e:
-            # JSON解析错误
-            logger.error(f"JSON解析错误: {str(e)}")
-            yield event.plain_result("数据处理错误，请联系管理员")
         except Exception as e:
             logger.error(f"生成初始场景时出错: {str(e)}")
             import traceback
@@ -312,7 +280,8 @@ class GalGamePlugin(Star):
 
     async def _generate_options(self, event: AstrMessageEvent):
         """
-        并行生成三个选项并发送给用户，同时发送按钮。
+        生成三个选项并分别发送给用户，同时发送按钮。
+        :param event: AstrBot 消息事件
         """
         session_id = event.unified_msg_origin
         try:
@@ -327,38 +296,38 @@ class GalGamePlugin(Star):
             
             self.game_sessions[session_id]["last_options"] = {}
             
-            # 并行生成所有选项
-            option_prompts = {
-                "A": self.prompt_templates[self.OPTION_A_PROMPT_NAME],
-                "B": self.prompt_templates[self.OPTION_B_PROMPT_NAME],
-                "C": self.prompt_templates[self.OPTION_C_PROMPT_NAME]
-            }
+            # 生成选项A
+            option_a_prompt_text = self.prompt_templates[self.OPTION_A_PROMPT_NAME]
+            option_a_response = await provider.text_chat(
+                prompt=option_a_prompt_text,
+                system_prompt=fixed_system_prompt,
+                contexts=self.game_sessions[session_id]["llm_context"]
+            )
+            option_a_text = option_a_response.completion_text if hasattr(option_a_response, 'completion_text') else "A - 温柔微笑"
+            self.game_sessions[session_id]["last_options"]["A"] = option_a_text
+            yield event.plain_result(f"{option_a_text}")
             
-            # 创建并行任务
-            tasks = {
-                option: provider.text_chat(
-                    prompt=prompt_text,
-                    system_prompt=fixed_system_prompt,
-                    contexts=self.game_sessions[session_id]["llm_context"]
-                ) for option, prompt_text in option_prompts.items()
-            }
+            # 生成选项B
+            option_b_prompt_text = self.prompt_templates[self.OPTION_B_PROMPT_NAME]
+            option_b_response = await provider.text_chat(
+                prompt=option_b_prompt_text,
+                system_prompt=fixed_system_prompt,
+                contexts=self.game_sessions[session_id]["llm_context"]
+            )
+            option_b_text = option_b_response.completion_text if hasattr(option_b_response, 'completion_text') else "B - 挑逗一笑"
+            self.game_sessions[session_id]["last_options"]["B"] = option_b_text
+            yield event.plain_result(f"{option_b_text}")
             
-            # 等待所有任务完成
-            option_responses = await asyncio.gather(*tasks.values(), return_exceptions=True)
-            option_results = dict(zip(tasks.keys(), option_responses))
-            
-            # 处理结果并发送给用户
-            option_texts = {}
-            for option, response in option_results.items():
-                if isinstance(response, Exception):
-                    logger.error(f"生成选项{option}时出错: {str(response)}")
-                    option_text = f"{option} - 默认选项" # 出错时的默认值
-                else:
-                    option_text = response.completion_text if hasattr(response, 'completion_text') else f"{option} - 默认选项"
-                
-                option_texts[option] = option_text
-                self.game_sessions[session_id]["last_options"][option] = option_text
-                yield event.plain_result(f"{option_text}")
+            # 生成选项C
+            option_c_prompt_text = self.prompt_templates[self.OPTION_C_PROMPT_NAME]
+            option_c_response = await provider.text_chat(
+                prompt=option_c_prompt_text,
+                system_prompt=fixed_system_prompt,
+                contexts=self.game_sessions[session_id]["llm_context"]
+            )
+            option_c_text = option_c_response.completion_text if hasattr(option_c_response, 'completion_text') else "C - 保持距离"
+            self.game_sessions[session_id]["last_options"]["C"] = option_c_text
+            yield event.plain_result(f"{option_c_text}")
             
             # 创建按钮数据结构
             buttons = {
@@ -372,22 +341,14 @@ class GalGamePlugin(Star):
                 ]
             }
             
-            # 将按钮以字典格式发送
+            # 将按钮以字典格式发送（astrbot_plugin_buttons 插件会自动处理）
             yield event.plain_result(f"{buttons}")
             
             # 选项写入上下文
             self.game_sessions[session_id]["llm_context"].append({
                 "role": "assistant",
-                "content": f"提供的选项：\n{option_texts['A']}\n{option_texts['B']}\n{option_texts['C']}"
+                "content": f"提供的选项：\n{option_a_text}\n{option_b_text}\n{option_c_text}"
             })
-        except aiohttp.ClientError as e:
-            # 网络错误
-            logger.error(f"网络错误: {str(e)}")
-            yield event.plain_result("网络连接问题，请稍后再试")
-        except json.JSONDecodeError as e:
-            # JSON解析错误
-            logger.error(f"JSON解析错误: {str(e)}")
-            yield event.plain_result("数据处理错误，请联系管理员")
         except Exception as e:
             logger.error(f"生成选项时出错: {str(e)}")
             import traceback
@@ -413,9 +374,6 @@ class GalGamePlugin(Star):
                 "role": "user",
                 "content": f"用户选择了：{chosen_option_full_text}"
             })
-            
-            # 管理上下文长度，保持在合理范围内
-            self._manage_context_length(session_id, 10)
             
             # 生成后续剧情
             async for response in self._generate_story_progression(event, choice, chosen_option_full_text):
@@ -481,14 +439,6 @@ class GalGamePlugin(Star):
             # 继续生成新选项
             async for option_response in self._generate_options(event):
                 yield option_response
-        except aiohttp.ClientError as e:
-            # 网络错误
-            logger.error(f"网络错误: {str(e)}")
-            yield event.plain_result("网络连接问题，请稍后再试")
-        except json.JSONDecodeError as e:
-            # JSON解析错误
-            logger.error(f"JSON解析错误: {str(e)}")
-            yield event.plain_result("数据处理错误，请联系管理员")
         except Exception as e:
             logger.error(f"生成故事进展时出错: {str(e)}")
             import traceback
