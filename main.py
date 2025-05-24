@@ -10,7 +10,7 @@ import astrbot.api.message_components as Comp
 from astrbot.core.utils.session_waiter import session_waiter, SessionController
 from astrbot.api import AstrBotConfig, logger  # 修改为导入astrbot的logger
 
-@register("astrbot_plugin_QQgal", "和泉智宏", "Galgame", "1.2.5", "https://github.com/0d00-Ciallo-0721/astrbot_plugin_QQgal")
+@register("astrbot_plugin_QQgal", "和泉智宏", "Galgame", "1.3", "https://github.com/0d00-Ciallo-0721/astrbot_plugin_QQgal")
 class GalGamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         """
@@ -106,20 +106,39 @@ class GalGamePlugin(Star):
     def _get_system_prompt(self, persona_id: Optional[str], default_prompt: str) -> str:
         '''获取系统提示词'''
         try:
-            if persona_id is None:
-                # 使用默认人格
+            # 如果用户明确取消了人格
+            if persona_id == "[%None]":
+                return default_prompt
+            
+            # 如果有指定的人格ID
+            elif persona_id:
+                # 获取所有已加载的人格
+                all_personas = self.context.provider_manager.personas
+                
+                # 在所有人格中查找匹配的人格
+                for persona in all_personas:
+                    if persona.get("name") == persona_id:  # persona_id 实际上是人格的 name
+                        return persona.get("prompt", default_prompt)
+            
+            # 如果是新会话或未指定人格，使用默认人格
+            else:
+                # 获取默认人格名称
                 default_persona = self.context.provider_manager.selected_default_persona
                 if default_persona:
-                    return default_persona.get("prompt", default_prompt)
-            elif persona_id != "[%None]":
-                # 使用指定人格
-                personas = self.context.provider_manager.personas
-                for persona in personas:
-                    if persona.get("id") == persona_id:
-                        return persona.get("prompt", default_prompt)
+                    default_persona_name = default_persona.get("name")
+                    
+                    # 获取所有已加载的人格
+                    all_personas = self.context.provider_manager.personas
+                    
+                    # 在所有人格中查找默认人格
+                    for persona in all_personas:
+                        if persona.get("name") == default_persona_name:
+                            return persona.get("prompt", default_prompt)
+                            
         except Exception as e:
             logger.error(f"获取人格信息时出错: {str(e)}")
 
+        # 如果上述所有逻辑都失败，返回默认提示词
         return default_prompt
 
     def _check_group_permitted(self, event: AstrMessageEvent) -> bool:
